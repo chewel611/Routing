@@ -16,7 +16,7 @@ namespace Microsoft.AspNetCore.Routing.Matching
         private Matcher _dfa;
         private Matcher _route;
         private Matcher _tree;
-
+        
         private EndpointFeature _feature;
 
         [GlobalSetup]

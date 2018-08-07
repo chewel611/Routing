@@ -1,0 +1,103 @@
+﻿// Copyright (c) .NET Foundation. All rights reserved.
+// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+
+using System;
+using BenchmarkDotNet.Attributes;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing.Matching;
+using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.AspNetCore.Routing.Template;
+using Microsoft.AspNetCore.Routing.Tree;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.ObjectPool;
+
+namespace Microsoft.AspNetCore.Routing.LinkGeneration
+{
+    public class SingleRouteWithNoParametersBenchmark
+    {
+        private TreeRouter _treeRouter;
+        private readonly LinkGenerator _linkGenerator;
+
+        public SingleRouteWithNoParametersBenchmark()
+        {
+            var services = CreateBasicServices();
+
+            // Build Endpoint
+            services.TryAddEnumerable(
+                ServiceDescriptor.Singleton<EndpointDataSource>(
+                    new DefaultEndpointDataSource(
+                        new MatcherEndpoint(
+                            MatcherEndpoint.EmptyInvoker,
+                            RoutePatternFactory.Parse(
+                                "Products/Details",
+                                defaults: new { controller = "Products", action = "Details" },
+                                constraints: null),
+                            order: 0,
+                            metadata: new EndpointMetadataCollection(
+                                new RouteValuesAddressMetadata(
+                                    name: string.Empty,
+                                    requiredValues: new RouteValueDictionary(
+                                        new { controller = "Products", action = "Details" }))),
+                            displayName: string.Empty))));
+
+            var serviceProvider = services.BuildServiceProvider();
+
+            // Build TreeRouter
+            var treeRouteBuilder = serviceProvider.GetRequiredService<TreeRouteBuilder>();
+            treeRouteBuilder.MapOutbound(
+                NullRouter.Instance,
+                new RouteTemplate(
+                    RoutePatternFactory.Parse(
+                        "Products/Details",
+                        defaults: new { controller = "Products", action = "Details" },
+                        constraints: null)),
+                requiredLinkValues: new RouteValueDictionary(new { controller = "Products", action = "Details" }),
+                routeName: string.Empty,
+                order: 0);
+            _treeRouter = treeRouteBuilder.Build();
+
+            _linkGenerator = serviceProvider.GetRequiredService<LinkGenerator>();
+        }
+
+        [Benchmark]
+        public void UsingTreeRouter()
+        {
+            var virtualPathData = _treeRouter.GetVirtualPath(new VirtualPathContext(
+                new DefaultHttpContext(),
+                ambientValues: new RouteValueDictionary(),
+                values: new RouteValueDictionary(new { controller = "Products", action = "Details" })));
+
+            Validate(virtualPathData?.VirtualPath);
+        }
+
+        [Benchmark]
+        public void UsingEndpointRouting()
+        {
+            var actualUrl = _linkGenerator.GetLink(
+                new DefaultHttpContext(),
+                values: new RouteValueDictionary(new { controller = "Products", action = "Details" }));
+
+            Validate(actualUrl);
+        }
+
+        private void Validate(string actualUrl)
+        {
+            var expectedUrl = "/Products/Details";
+            if (actualUrl != expectedUrl)
+            {
+                throw new InvalidOperationException($"Expected: {expectedUrl}, Actual: {actualUrl}");
+            }
+        }
+
+        private IServiceCollection CreateBasicServices()
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<ObjectPoolProvider, DefaultObjectPoolProvider>();
+            services.AddLogging();
+            services.AddOptions();
+            services.AddRouting();
+            return services;
+        }
+    }
+}
